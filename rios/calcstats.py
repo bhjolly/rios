@@ -213,7 +213,7 @@ def addHistogramsGDAL(ds, minMaxList, approx_ok):
     for bandndx in range(ds.RasterCount):
         band = ds.GetRasterBand(bandndx + 1)
         (minval, maxval) = minMaxList[bandndx]
-        if minval is not None:
+        if isValidStats((minval, maxval)):
             histParams = HistogramParams(band, minval, maxval)
 
             # Get histogram and force GDAL to recalculate it. Note that we
@@ -259,7 +259,19 @@ def computeStatsGDAL(band, approx_ok):
         if not usingExceptions:
             gdal.DontUseExceptions()
 
+    if not isValidStats((minval, maxval, meanval, stddev)):
+        minval = maxval = meanval = stddev = None
+
     return (minval, maxval, meanval, stddev)
+
+
+def isValidStats(stats):
+    """
+    Return True if all the given statistics are present and finite.
+    """
+    if None in stats:
+        return False
+    return numpy.isfinite(stats).all()
 
 
 def writeBasicStats(band, minval, maxval, meanval, stddev, approx_ok):
@@ -655,6 +667,8 @@ class SinglePassAccumulator:
             values = arr[~numpy.isnan(arr)]
         else:
             values = arr[arr != self.nullval]
+        if numpy.issubdtype(values.dtype, numpy.floating):
+            values = values[numpy.isfinite(values)]
         if len(values) > 0:
             self.sum += values.astype(numpy.float64).sum()
             self.ssq += (values.astype(numpy.float64)**2).sum()
@@ -873,7 +887,7 @@ def finishSinglePassStats(ds, singlePassMgr, symbolicName, seqNum):
     numBands = len(accumList)
     for i in range(numBands):
         (minval, maxval, meanval, stddev) = accumList[i].finalStats()
-        if None not in (minval, maxval, meanval, stddev):
+        if isValidStats((minval, maxval, meanval, stddev)):
             band = ds.GetRasterBand(i + 1)
             approx_ok = singlePassMgr.approxOK[symbolicName]
             writeBasicStats(band, minval, maxval, meanval, stddev, approx_ok)
